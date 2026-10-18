@@ -72,6 +72,12 @@ fun AppRoot(autostart: MutableState<Boolean>) {
         }
     }
 
+    fun requestPermissions() {
+        pendingStart = false
+        if (!app.prefs.current.disclosureAccepted) showDisclosure = true
+        else permLauncher.launch(Setup.runtimePermissions)
+    }
+
     LaunchedEffect(autostart.value) {
         if (autostart.value) {
             autostart.value = false
@@ -100,7 +106,11 @@ fun AppRoot(autostart: MutableState<Boolean>) {
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (tab) {
-                0 -> StatusScreen(onStart = ::requestStart, onStop = { Setup.stopRelay(ctx) })
+                0 -> StatusScreen(
+                    onStart = ::requestStart,
+                    onStop = { Setup.stopRelay(ctx) },
+                    onRequestPermissions = ::requestPermissions,
+                )
                 1 -> MapScreen()
                 2 -> LogScreen(onShowOnMap = { dest ->
                     RelayState.mapFocus.value = dest

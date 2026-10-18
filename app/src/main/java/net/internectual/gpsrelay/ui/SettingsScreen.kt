@@ -78,7 +78,7 @@ fun SettingsScreen() {
                             app.prefs.update { copy(serverOverride = t) }
                         }
                     },
-                    label = { Text("Server address (blank = hotspot gateway)") },
+                    label = { Text("Server address (blank = Wi-Fi gateway)") },
                     placeholder = { Text("192.168.43.1:$DEFAULT_PORT") },
                     isError = !overrideValid,
                     singleLine = true,

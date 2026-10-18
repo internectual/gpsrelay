@@ -83,7 +83,7 @@ The client should show **Connected to <gateway>:47474**, and other apps on the c
 |---|---|---|
 | Port | Both | Default `47474`. Must match on both devices. |
 | Pairing PIN | Both | If set on the server, clients must use the same PIN. |
-| Server address | Client | Leave blank to use the hotspot gateway. Otherwise use `host` or `host:port`. |
+| Server address | Client | Leave blank to use the Wi-Fi gateway, which is the server when connected to its hotspot. Otherwise use `host` or `host:port`. |
 | Start when the device boots | Both | Android 10 and earlier start automatically. Android 11+ shows a one-tap "Start" notification, because Android blocks location access for services started at boot. |
 
 Port and PIN changes apply the next time the relay starts.

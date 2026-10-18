@@ -55,7 +55,7 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatusScreen(onStart: () -> Unit, onStop: () -> Unit) {
+fun StatusScreen(onStart: () -> Unit, onStop: () -> Unit, onRequestPermissions: () -> Unit) {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as GpsRelayApp
     val prefs by app.prefs.values.collectAsStateWithLifecycle()
@@ -94,7 +94,7 @@ fun StatusScreen(onStart: () -> Unit, onStop: () -> Unit) {
             }
         }
 
-        if (prefs.mode == Mode.SERVER) ServerStatus(ctx, prefs.port, resumeTick) else ClientStatus(ctx, prefs, resumeTick)
+        if (prefs.mode == Mode.SERVER) ServerStatus(ctx, prefs.port, resumeTick) else ClientStatus(ctx, prefs, resumeTick, onRequestPermissions)
     }
 }
 
@@ -153,7 +153,12 @@ private fun ServerStatus(ctx: Context, port: Int, resumeTick: Long) {
 }
 
 @Composable
-private fun ClientStatus(ctx: Context, prefs: net.internectual.gpsrelay.settings.Prefs.Values, resumeTick: Long) {
+private fun ClientStatus(
+    ctx: Context,
+    prefs: net.internectual.gpsrelay.settings.Prefs.Values,
+    resumeTick: Long,
+    onRequestPermissions: () -> Unit,
+) {
     val conn by RelayState.conn.collectAsStateWithLifecycle()
     val target by RelayState.connTarget.collectAsStateWithLifecycle()
     val error by RelayState.connError.collectAsStateWithLifecycle()
@@ -176,7 +181,7 @@ private fun ClientStatus(ctx: Context, prefs: net.internectual.gpsrelay.settings
         Text(
             "Server: " + when {
                 expected == null -> "no Wi-Fi gateway found. Join the server's hotspot or set an address in Settings"
-                expected.fromGateway -> "$expected (hotspot gateway)"
+                expected.fromGateway -> "$expected (Wi-Fi gateway)"
                 else -> "$expected (manual)"
             },
             style = MaterialTheme.typography.bodySmall,
@@ -192,7 +197,7 @@ private fun ClientStatus(ctx: Context, prefs: net.internectual.gpsrelay.settings
 
     InfoCard("Setup checklist") {
         key(resumeTick) {
-            CheckItem("Location permission", Setup.hasLocation(ctx), null, null)
+            CheckItem("Location permission", Setup.hasLocation(ctx), "Allow", onRequestPermissions)
             if (android.os.Build.VERSION.SDK_INT >= 33) {
                 CheckItem("Notifications", Setup.hasNotifications(ctx), "Open") { Setup.open(ctx, Setup.appDetailsIntent(ctx.packageName)) }
             }
