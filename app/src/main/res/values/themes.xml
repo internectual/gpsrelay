@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.GpsRelay" parent="@android:style/Theme.Material.Light.NoActionBar" />
+    <style name="Theme.GpsRelay.Translucent" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+</resources>

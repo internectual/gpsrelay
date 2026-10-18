@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">GPS Relay</string>
+    <string name="nav_target_label">Send to client (GPS Relay)</string>
+    <string name="ch_service">Relay status</string>
+    <string name="ch_nav">Navigation requests</string>
+    <string name="ch_boot">Start reminders</string>
+    <string name="notif_server_title">GPS Relay server running</string>
+    <string name="notif_client_title">GPS Relay client running</string>
+    <string name="stop">Stop</string>
+</resources>
