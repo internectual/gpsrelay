@@ -41,7 +41,7 @@ The client still gets internet through the hotspot, so online navigation apps su
 
 ## Install
 
-Build the APK (see [Building](#building)), copy it to both devices and open it. Or install it over USB:
+Download the APK from the repository's **Releases** page, or build it yourself (see [Building](#building)). Copy it to both devices and open it. Or install it over USB:
 
 ```sh
 adb install app/build/outputs/apk/release/app-release.apk
@@ -156,6 +156,21 @@ Then build:
 ```
 
 Back up the keystore and its passwords. You need them to sign every future update.
+
+### Publishing a release
+
+GitHub Actions builds and publishes releases (`.github/workflows/release.yml`). Push a version tag:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The workflow runs the unit tests, then builds and signs the APK and AAB. It attaches both to a new GitHub release with generated notes and a `SHA256SUMS` file. Tags with a suffix, such as `v0.2.0-beta.1`, are published as pre-releases.
+
+The tag sets the app version: `versionName` is the tag without the `v`, and `versionCode` is `major × 1,000,000 + minor × 1,000 + patch`.
+
+Signing uses these repository secrets: `KEYSTORE_BASE64` (the keystore file, base64-encoded), `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD`.
 
 ## Privacy
 

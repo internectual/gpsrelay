@@ -16,6 +16,12 @@ val keystoreProps = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 
+// Release CI passes -PappVersion=1.2.3 from the git tag. versionCode is derived so it always
+// increases with the version: major * 1_000_000 + minor * 1_000 + patch.
+val appVersion = (findProperty("appVersion") as String?)?.removePrefix("v") ?: "0.1.0"
+val appVersionCode = appVersion.substringBefore('-').split('.').map { it.toInt() }
+    .let { (major, minor, patch) -> major * 1_000_000 + minor * 1_000 + patch }
+
 android {
     namespace = "net.internectual.gpsrelay"
     compileSdk = 35
@@ -24,8 +30,8 @@ android {
         applicationId = "net.internectual.gpsrelay"
         minSdk = 21
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersion
         vectorDrawables.useSupportLibrary = true
     }
 
