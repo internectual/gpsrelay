@@ -41,7 +41,10 @@ import net.internectual.gpsrelay.nmea.UdpTarget
 import net.internectual.gpsrelay.protocol.Fix
 import net.internectual.gpsrelay.protocol.Msg
 import net.internectual.gpsrelay.settings.Prefs
+import net.internectual.gpsrelay.state.Elevation
 import net.internectual.gpsrelay.state.RelayState
+import net.internectual.gpsrelay.state.SatCount
+import net.internectual.gpsrelay.state.SatStatus
 
 /** Server mode: reads the GPS and serves fixes + intercepted destinations to clients on the hotspot. */
 class ServerService : Service() {
@@ -58,6 +61,9 @@ class ServerService : Service() {
     private var nmeaError: String? = null
     /** When the platform last handed us a raw NMEA sentence; while it keeps doing so we don't synthesize our own. */
     @Volatile private var lastRawNmeaAt = 0L
+    /** Latest sea-level altitude from the receiver's GGA sentences, and when it arrived. */
+    private var ggaAltitude: Double? = null
+    private var ggaAltitudeAt = 0L
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) = onLocation(location)
@@ -149,10 +155,7 @@ class ServerService : Service() {
             setNmeaError("NMEA UDP is on but has no valid host:port")
         }
         val targets = udpTargets.orEmpty()
-        if (cfg.tcpPort == null && targets.isEmpty()) {
-            setNmeaListener(false)
-            return
-        }
+        if (cfg.tcpPort == null && targets.isEmpty()) return
         val out = NmeaOutput(scope, cfg.tcpPort, targets, object : NmeaOutput.Listener {
             override fun onClientsChanged(remotes: List<String>) {
                 RelayState.nmeaClients.value = remotes
@@ -161,7 +164,6 @@ class ServerService : Service() {
         })
         out.start()
         nmea = out
-        setNmeaListener(true)
     }
 
     private fun setNmeaError(message: String) {
@@ -169,29 +171,41 @@ class ServerService : Service() {
         RelayState.serverError.value = message
     }
 
-    /** The receiver's own sentences (GSV, GSA, multi-constellation talkers, ...) beat anything we could synthesize. */
+    /**
+     * Listens to the receiver's own sentences for as long as the GPS is on: they're relayed as NMEA output when that's
+     * enabled (GSV, GSA, multi-constellation talkers, ... beat anything we could synthesize), and their GGA altitude
+     * gives the elevation above sea level.
+     */
     @SuppressLint("MissingPermission")
-    private fun setNmeaListener(on: Boolean) {
-        if (Build.VERSION.SDK_INT < 24 || on == (nmeaCallback != null)) return
-        if (!on) {
-            (nmeaCallback as? OnNmeaMessageListener)?.let { lm.removeNmeaListener(it) }
-            nmeaCallback = null
-            return
-        }
+    @androidx.annotation.RequiresApi(24)
+    private fun listenForNmea() {
         val listener = OnNmeaMessageListener { message, _ ->
             val sentences = NmeaSentences.splitRaw(message)
             if (sentences.isNotEmpty()) {
                 lastRawNmeaAt = SystemClock.elapsedRealtime()
+                sentences.firstNotNullOfOrNull(NmeaSentences::ggaAltitude)?.let {
+                    ggaAltitude = it
+                    ggaAltitudeAt = lastRawNmeaAt
+                }
                 nmea?.publish(sentences)
             }
         }
-        try {
-            @Suppress("DEPRECATION")
-            lm.addNmeaListener(listener, Handler(Looper.getMainLooper()))
-            nmeaCallback = listener
-        } catch (e: SecurityException) {
-            RelayState.serverError.value = "Location permission not granted"
+        @Suppress("DEPRECATION")
+        lm.addNmeaListener(listener, Handler(Looper.getMainLooper()))
+        nmeaCallback = listener
+    }
+
+    /** Elevation above sea level when the platform or receiver gives one, else Android's height above the ellipsoid. */
+    private fun elevation(l: Location): Elevation? {
+        val vAcc = if (Build.VERSION.SDK_INT >= 26 && l.hasVerticalAccuracy()) l.verticalAccuracyMeters else null
+        if (Build.VERSION.SDK_INT >= 34 && l.hasMslAltitude()) {
+            val acc = if (l.hasMslAltitudeAccuracy()) l.mslAltitudeAccuracyMeters else vAcc
+            return Elevation(l.mslAltitudeMeters, aboveSeaLevel = true, accuracy = acc)
         }
+        ggaAltitude?.let { msl ->
+            if (SystemClock.elapsedRealtime() - ggaAltitudeAt <= RAW_NMEA_STALE_MS) return Elevation(msl, aboveSeaLevel = true, accuracy = vAcc)
+        }
+        return if (l.hasAltitude()) Elevation(l.altitude, aboveSeaLevel = false, accuracy = vAcc) else null
     }
 
     @SuppressLint("MissingPermission")
@@ -207,12 +221,18 @@ class ServerService : Service() {
             if (Build.VERSION.SDK_INT >= 24) {
                 val cb = object : GnssStatus.Callback() {
                     override fun onSatelliteStatusChanged(status: GnssStatus) {
-                        sats = (0 until status.satelliteCount).count { status.usedInFix(it) }
+                        val s = satStatus(status)
+                        sats = s.total.used
+                        RelayState.satellites.value = s
+                    }
+                    override fun onStopped() {
+                        RelayState.satellites.value = null
                     }
                 }
                 @Suppress("DEPRECATION")
                 lm.registerGnssStatusCallback(cb, Handler(Looper.getMainLooper()))
                 gnssCallback = cb
+                listenForNmea()
             }
         } catch (e: SecurityException) {
             RelayState.serverError.value = "Location permission not granted"
@@ -231,6 +251,7 @@ class ServerService : Service() {
             sats = sats,
         )
         RelayState.onFix(fix)
+        RelayState.elevation.value = elevation(l)
         relay?.broadcastFix(Msg.FixMsg(fix))
         nmea?.let { out ->
             // Fall back to sentences built from the fix when the platform isn't providing raw NMEA (before API 24, or
@@ -293,6 +314,8 @@ class ServerService : Service() {
         RelayState.serverRunning.value = false
         RelayState.clients.value = emptyList()
         RelayState.nmeaClients.value = emptyList()
+        RelayState.satellites.value = null
+        RelayState.elevation.value = null
         super.onDestroy()
     }
 
@@ -301,6 +324,34 @@ class ServerService : Service() {
         private const val RAW_NMEA_STALE_MS = 3_000L
         private const val NMEA_SETTLE_MS = 500L
         val PI_FLAGS = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
+
+        /** Display order and names for [GnssStatus] constellation types; anything else is "Other". */
+        private val CONSTELLATIONS = listOf(
+            GnssStatus.CONSTELLATION_GPS to "GPS",
+            GnssStatus.CONSTELLATION_GLONASS to "GLONASS",
+            GnssStatus.CONSTELLATION_GALILEO to "Galileo",
+            GnssStatus.CONSTELLATION_BEIDOU to "BeiDou",
+            GnssStatus.CONSTELLATION_QZSS to "QZSS",
+            GnssStatus.CONSTELLATION_SBAS to "SBAS",
+            7 to "NavIC", // GnssStatus.CONSTELLATION_IRNSS, API 29
+        )
+
+        @androidx.annotation.RequiresApi(24)
+        private fun satStatus(status: GnssStatus): SatStatus {
+            val all = (0 until status.satelliteCount)
+            fun count(idx: List<Int>) = SatCount(
+                inView = idx.size,
+                withSignal = idx.count { status.getCn0DbHz(it) > 0f },
+                used = idx.count { status.usedInFix(it) },
+            )
+            val byType = all.groupBy { status.getConstellationType(it) }
+            val named = CONSTELLATIONS.mapNotNull { (type, name) -> byType[type]?.let { name to count(it) } }
+            val other = byType.filterKeys { k -> CONSTELLATIONS.none { it.first == k } }.values.flatten()
+            return SatStatus(
+                total = count(all.toList()),
+                byConstellation = if (other.isEmpty()) named else named + ("Other" to count(other)),
+            )
+        }
 
         fun start(context: Context) =
             ContextCompat.startForegroundService(context, Intent(context, ServerService::class.java))

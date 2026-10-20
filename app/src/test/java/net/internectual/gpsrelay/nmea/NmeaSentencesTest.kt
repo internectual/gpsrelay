@@ -22,6 +22,16 @@ class NmeaSentencesTest {
         )
     }
 
+    @Test fun readsSeaLevelAltitudeFromGga() {
+        assertEquals(545.4, NmeaSentences.ggaAltitude(NmeaSentences.frame("GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,"))!!, 1e-9)
+        assertEquals(-12.0, NmeaSentences.ggaAltitude(NmeaSentences.frame("GNGGA,123519,4807.038,N,01131.000,E,2,08,0.9,-12.0,M,46.9,M,,"))!!, 1e-9)
+        // No fix, empty altitude, other sentence types and bad checksums give nothing.
+        assertEquals(null, NmeaSentences.ggaAltitude("\$GPGGA,,,,,,0,,,,,,,,*66"))
+        assertEquals(null, NmeaSentences.ggaAltitude(NmeaSentences.frame("GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,,M,46.9,M,,")))
+        assertEquals(null, NmeaSentences.ggaAltitude(NmeaSentences.frame("GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W")))
+        assertEquals(null, NmeaSentences.ggaAltitude("\$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*48"))
+    }
+
     @Test fun validatesFraming() {
         assertTrue(NmeaSentences.isValid("\$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47"))
         assertFalse(NmeaSentences.isValid("\$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*48"))

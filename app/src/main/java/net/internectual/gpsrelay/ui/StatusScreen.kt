@@ -51,7 +51,9 @@ import net.internectual.gpsrelay.protocol.Fix
 import net.internectual.gpsrelay.server.NavDispatcher
 import net.internectual.gpsrelay.settings.Mode
 import net.internectual.gpsrelay.state.ConnState
+import net.internectual.gpsrelay.state.Elevation
 import net.internectual.gpsrelay.state.RelayState
+import net.internectual.gpsrelay.state.SatStatus
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -156,7 +158,9 @@ private fun ServerStatus(ctx: Context, prefs: net.internectual.gpsrelay.settings
             }
         }
     }
-    FixCard(fix, "This device's GPS")
+    val satellites by RelayState.satellites.collectAsStateWithLifecycle()
+    val elevation by RelayState.elevation.collectAsStateWithLifecycle()
+    FixCard(fix, "This device's GPS", satellites, elevation)
 
     var test by rememberSaveable { mutableStateOf("") }
     InfoCard("Send a destination") {
@@ -284,7 +288,7 @@ private fun CheckItem(label: String, ok: Boolean, action: String?, onAction: (()
 }
 
 @Composable
-fun FixCard(fix: Fix?, title: String) {
+fun FixCard(fix: Fix?, title: String, satellites: SatStatus? = null, elevation: Elevation? = null) {
     val receivedAt by RelayState.fixReceivedAt.collectAsStateWithLifecycle()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -308,6 +312,21 @@ fun FixCard(fix: Fix?, title: String) {
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
             )
+            elevation?.let { e ->
+                Text(
+                    "Elevation %.0f m (%.0f ft) %s".format(
+                        Locale.US, e.meters, e.meters * M_TO_FT, if (e.aboveSeaLevel) "above sea level" else "above the ellipsoid",
+                    ) + (e.accuracy?.let { " · ±%.0f m".format(Locale.US, it) } ?: ""),
+                )
+            }
+        }
+        satellites?.let { s ->
+            Text("Satellites: ${s.total.used} used in fix · ${s.total.withSignal} with signal · ${s.total.inView} in view")
+            Text(
+                s.byConstellation.joinToString(" · ") { (name, c) -> "$name ${c.used}/${c.withSignal}/${c.inView}" } +
+                    "  (used/signal/in view)",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }
@@ -324,3 +343,5 @@ fun InfoCard(title: String, content: @Composable () -> Unit) {
 
 @Composable
 fun ErrorText(text: String) = Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+
+private const val M_TO_FT = 3.28084

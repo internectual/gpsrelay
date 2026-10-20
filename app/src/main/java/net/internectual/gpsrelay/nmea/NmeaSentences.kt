@@ -41,6 +41,17 @@ object NmeaSentences {
         chunk.split('\r', '\n').map { it.trim() }.filter { it.isNotEmpty() && isValid(it) }
 
     /** GGA, RMC and VTG for [fix], in that order. */
+    /**
+     * Altitude above mean sea level in metres from a valid GGA sentence (any talker) that has a fix, else null.
+     * The receiver applies its own geoid model, which Android's ellipsoid-based Location.altitude lacks.
+     */
+    fun ggaAltitude(sentence: String): Double? {
+        if (!isValid(sentence) || sentence.length < 7 || sentence.substring(3, 6) != "GGA") return null
+        val f = sentence.substring(1, sentence.length - 3).split(',')
+        if (f.size < 11 || (f[6].toIntOrNull() ?: 0) == 0 || f[10] != "M") return null
+        return f[9].toDoubleOrNull()
+    }
+
     fun fromFix(fix: Fix): List<String> = listOf(gga(fix), rmc(fix), vtg(fix))
 
     fun gga(f: Fix): String {

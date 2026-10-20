@@ -9,6 +9,15 @@ import net.internectual.gpsrelay.protocol.Fix
 
 enum class ConnState { STOPPED, SEARCHING, CONNECTING, CONNECTED, ERROR }
 
+/** Satellites the receiver reports: [inView] known, [withSignal] actually heard, [used] in the current fix. */
+data class SatCount(val inView: Int, val withSignal: Int, val used: Int)
+
+/** [meters] above sea level, or above the WGS84 ellipsoid when ![aboveSeaLevel]; [accuracy] is ± metres if known. */
+data class Elevation(val meters: Double, val aboveSeaLevel: Boolean, val accuracy: Float?)
+
+/** [total] plus a breakdown by constellation name ("GPS", "Galileo", ...), in a stable order. */
+data class SatStatus(val total: SatCount, val byConstellation: List<Pair<String, SatCount>>)
+
 /** Process-wide live state shared by the services and the UI. */
 object RelayState {
     private const val TRAIL_MAX = 600
@@ -18,6 +27,10 @@ object RelayState {
     val clients = MutableStateFlow<List<String>>(emptyList())
     /** Addresses of TCP clients currently reading the server's NMEA stream. */
     val nmeaClients = MutableStateFlow<List<String>>(emptyList())
+    /** Server: this device's satellite status while the GPS is on, null otherwise. */
+    val satellites = MutableStateFlow<SatStatus?>(null)
+    /** Server: this device's elevation from the latest fix, null when unknown. */
+    val elevation = MutableStateFlow<Elevation?>(null)
 
     val clientRunning = MutableStateFlow(false)
     val conn = MutableStateFlow(ConnState.STOPPED)
