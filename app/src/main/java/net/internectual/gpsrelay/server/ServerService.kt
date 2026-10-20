@@ -53,6 +53,8 @@ class ServerService : Service() {
     private var relay: RelayServer? = null
     private var sats: Int? = null
     private var lastNotifUpdate = 0L
+    /** Set once onDestroy starts, so callbacks fired while tearing down can't re-post the notification. */
+    private var destroyed = false
     private var gnssCallback: Any? = null
     private var nmea: NmeaOutput? = null
     private var nmeaJob: Job? = null
@@ -91,7 +93,7 @@ class ServerService : Service() {
         }
         try {
             ServiceCompat.startForeground(
-                this, GpsRelayApp.NOTIF_SERVICE, buildNotification(),
+                this, GpsRelayApp.NOTIF_SERVER, buildNotification(),
                 if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0,
             )
         } catch (e: Exception) {
@@ -288,17 +290,19 @@ class ServerService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun updateNotification(force: Boolean) {
+        if (destroyed) return
         val now = System.currentTimeMillis()
         if (!force && now - lastNotifUpdate < 10_000) return
         lastNotifUpdate = now
         try {
-            NotificationManagerCompat.from(this).notify(GpsRelayApp.NOTIF_SERVICE, buildNotification())
+            NotificationManagerCompat.from(this).notify(GpsRelayApp.NOTIF_SERVER, buildNotification())
         } catch (e: SecurityException) {
             // Notifications permission denied; the FGS still runs.
         }
     }
 
     override fun onDestroy() {
+        destroyed = true
         lm.removeUpdates(locationListener)
         if (Build.VERSION.SDK_INT >= 24) {
             (gnssCallback as? GnssStatus.Callback)?.let { lm.unregisterGnssStatusCallback(it) }
@@ -316,6 +320,8 @@ class ServerService : Service() {
         RelayState.nmeaClients.value = emptyList()
         RelayState.satellites.value = null
         RelayState.elevation.value = null
+        // Also clears a notification left behind by an older build or a stray Stop tap.
+        NotificationManagerCompat.from(this).cancel(GpsRelayApp.NOTIF_SERVER)
         super.onDestroy()
     }
 

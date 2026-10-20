@@ -55,9 +55,10 @@ class GpsRelayApp : Application() {
         const val CH_NAV = "nav_prompt"
         const val CH_BOOT = "boot_start"
 
-        const val NOTIF_SERVICE = 1
+        const val NOTIF_SERVER = 1
         const val NOTIF_NAV = 2
         const val NOTIF_BOOT = 3
+        const val NOTIF_CLIENT = 4
 
         lateinit var instance: GpsRelayApp
             private set
