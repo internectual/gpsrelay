@@ -94,14 +94,16 @@ fun StatusScreen(onStart: () -> Unit, onStop: () -> Unit, onRequestPermissions: 
             }
         }
 
-        if (prefs.mode == Mode.SERVER) ServerStatus(ctx, prefs.port, resumeTick) else ClientStatus(ctx, prefs, resumeTick, onRequestPermissions)
+        if (prefs.mode == Mode.SERVER) ServerStatus(ctx, prefs, resumeTick) else ClientStatus(ctx, prefs, resumeTick, onRequestPermissions)
     }
 }
 
 @Composable
-private fun ServerStatus(ctx: Context, port: Int, resumeTick: Long) {
+private fun ServerStatus(ctx: Context, prefs: net.internectual.gpsrelay.settings.Prefs.Values, resumeTick: Long) {
+    val port = prefs.port
     val running by RelayState.serverRunning.collectAsStateWithLifecycle()
     val clients by RelayState.clients.collectAsStateWithLifecycle()
+    val nmeaClients by RelayState.nmeaClients.collectAsStateWithLifecycle()
     val error by RelayState.serverError.collectAsStateWithLifecycle()
     val fix by RelayState.fix.collectAsStateWithLifecycle()
     val ips = remember(resumeTick, running) { Setup.localIpv4() }
@@ -116,6 +118,19 @@ private fun ServerStatus(ctx: Context, port: Int, resumeTick: Long) {
             }
         )
         error?.let { ErrorText(it) }
+    }
+    if (prefs.nmeaTcpEnabled || prefs.nmeaUdpEnabled) {
+        InfoCard("NMEA output") {
+            if (prefs.nmeaTcpEnabled) {
+                Text(
+                    (if (running) "TCP on port ${prefs.nmeaTcpPort}" else "TCP port ${prefs.nmeaTcpPort} (server stopped)") +
+                        if (nmeaClients.isEmpty()) ", no readers" else ", readers: " + nmeaClients.joinToString(", ")
+                )
+            }
+            if (prefs.nmeaUdpEnabled) {
+                Text("UDP to " + prefs.nmeaUdpTargets.ifBlank { "(no target set)" })
+            }
+        }
     }
     FixCard(fix, "This device's GPS")
 
