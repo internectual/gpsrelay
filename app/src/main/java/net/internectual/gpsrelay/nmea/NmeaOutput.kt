@@ -123,13 +123,18 @@ class NmeaOutput(
                     return@launch
                 }
                 serverSocket = ss
-                while (isActive) {
-                    val s = try {
-                        ss.accept()
-                    } catch (e: IOException) {
-                        break
+                try {
+                    while (isActive) {
+                        val s = try {
+                            ss.accept()
+                        } catch (e: IOException) {
+                            break
+                        }
+                        launch(Dispatchers.IO) { handle(s) }
                     }
-                    launch(Dispatchers.IO) { handle(s) }
+                } finally {
+                    // stop() may have run before the bind finished, so it couldn't close the socket itself.
+                    runCatching { ss.close() }
                 }
             }
         }

@@ -35,6 +35,13 @@ class NmeaOutputTest {
         Thread.sleep(300)
     }
 
+    private fun awaitClientCount(n: Int) {
+        while (true) {
+            val c = clientCounts.poll(2, TimeUnit.SECONDS) ?: throw AssertionError("never saw $n clients")
+            if (c == n) return
+        }
+    }
+
     @Before fun setUp() {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
@@ -48,8 +55,8 @@ class NmeaOutputTest {
         start(tcp = tcpPort)
         val a = Socket("127.0.0.1", tcpPort).apply { soTimeout = 3000 }
         val b = Socket("127.0.0.1", tcpPort).apply { soTimeout = 3000 }
-        assertEquals(1, clientCounts.poll(2, TimeUnit.SECONDS))
-        assertEquals(2, clientCounts.poll(2, TimeUnit.SECONDS))
+        // Both connect at once, so the first notification may already count both.
+        awaitClientCount(2)
 
         output!!.publish(listOf(gga, rmc))
         listOf(a, b).forEach { s ->

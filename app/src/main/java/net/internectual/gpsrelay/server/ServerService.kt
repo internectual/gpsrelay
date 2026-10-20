@@ -24,8 +24,14 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import net.internectual.gpsrelay.GpsRelayApp
 import net.internectual.gpsrelay.MainActivity
 import net.internectual.gpsrelay.R
@@ -46,7 +52,10 @@ class ServerService : Service() {
     private var lastNotifUpdate = 0L
     private var gnssCallback: Any? = null
     private var nmea: NmeaOutput? = null
+    private var nmeaJob: Job? = null
     private var nmeaCallback: Any? = null
+    /** The last error message the NMEA output posted, so a reconfigure can clear it without clobbering others. */
+    private var nmeaError: String? = null
     /** When the platform last handed us a raw NMEA sentence; while it keeps doing so we don't synthesize our own. */
     @Volatile private var lastRawNmeaAt = 0L
 
@@ -109,28 +118,80 @@ class ServerService : Service() {
         server.start()
         relay = server
         NavDispatcher.server = server
-        startNmea(p)
         startGps()
+        nmeaJob = scope.launch(Dispatchers.Main) {
+            var first = true
+            app.prefs.values.map(::NmeaConfig).distinctUntilChanged().collectLatest { cfg ->
+                // Settings save on every keystroke; wait for typing to settle before rebinding sockets.
+                if (!first) delay(NMEA_SETTLE_MS)
+                first = false
+                applyNmea(cfg)
+            }
+        }
     }
 
-    private fun startNmea(p: Prefs.Values) {
-        val udpTargets = if (p.nmeaUdpEnabled) UdpTarget.parseList(p.nmeaUdpTargets) else emptyList()
-        if (udpTargets == null || (p.nmeaUdpEnabled && udpTargets.isEmpty())) {
-            RelayState.serverError.value = "NMEA UDP is on but has no valid host:port"
+    /** The settings [NmeaOutput] is built from; a change to any of them rebuilds it. */
+    private data class NmeaConfig(val tcpPort: Int?, val udpEnabled: Boolean, val udpTargets: String) {
+        constructor(p: Prefs.Values) : this(
+            tcpPort = if (p.nmeaTcpEnabled) p.nmeaTcpPort else null,
+            udpEnabled = p.nmeaUdpEnabled,
+            udpTargets = if (p.nmeaUdpEnabled) p.nmeaUdpTargets else "",
+        )
+    }
+
+    private fun applyNmea(cfg: NmeaConfig) {
+        nmea?.stop()
+        nmea = null
+        nmeaError?.let { if (RelayState.serverError.value == it) RelayState.serverError.value = null }
+        nmeaError = null
+        val udpTargets = if (cfg.udpEnabled) UdpTarget.parseList(cfg.udpTargets) else emptyList()
+        if (udpTargets == null || (cfg.udpEnabled && udpTargets.isEmpty())) {
+            setNmeaError("NMEA UDP is on but has no valid host:port")
         }
-        val tcpPort = if (p.nmeaTcpEnabled) p.nmeaTcpPort else null
         val targets = udpTargets.orEmpty()
-        if (tcpPort == null && targets.isEmpty()) return
-        val out = NmeaOutput(scope, tcpPort, targets, object : NmeaOutput.Listener {
+        if (cfg.tcpPort == null && targets.isEmpty()) {
+            setNmeaListener(false)
+            return
+        }
+        val out = NmeaOutput(scope, cfg.tcpPort, targets, object : NmeaOutput.Listener {
             override fun onClientsChanged(remotes: List<String>) {
                 RelayState.nmeaClients.value = remotes
             }
-            override fun onError(message: String) {
-                RelayState.serverError.value = message
-            }
+            override fun onError(message: String) = setNmeaError(message)
         })
         out.start()
         nmea = out
+        setNmeaListener(true)
+    }
+
+    private fun setNmeaError(message: String) {
+        nmeaError = message
+        RelayState.serverError.value = message
+    }
+
+    /** The receiver's own sentences (GSV, GSA, multi-constellation talkers, ...) beat anything we could synthesize. */
+    @SuppressLint("MissingPermission")
+    private fun setNmeaListener(on: Boolean) {
+        if (Build.VERSION.SDK_INT < 24 || on == (nmeaCallback != null)) return
+        if (!on) {
+            (nmeaCallback as? OnNmeaMessageListener)?.let { lm.removeNmeaListener(it) }
+            nmeaCallback = null
+            return
+        }
+        val listener = OnNmeaMessageListener { message, _ ->
+            val sentences = NmeaSentences.splitRaw(message)
+            if (sentences.isNotEmpty()) {
+                lastRawNmeaAt = SystemClock.elapsedRealtime()
+                nmea?.publish(sentences)
+            }
+        }
+        try {
+            @Suppress("DEPRECATION")
+            lm.addNmeaListener(listener, Handler(Looper.getMainLooper()))
+            nmeaCallback = listener
+        } catch (e: SecurityException) {
+            RelayState.serverError.value = "Location permission not granted"
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -152,19 +213,6 @@ class ServerService : Service() {
                 @Suppress("DEPRECATION")
                 lm.registerGnssStatusCallback(cb, Handler(Looper.getMainLooper()))
                 gnssCallback = cb
-                if (nmea != null) {
-                    // The receiver's own sentences (GSV, GSA, multi-constellation talkers, ...) beat anything we could synthesize.
-                    val listener = OnNmeaMessageListener { message, _ ->
-                        val sentences = NmeaSentences.splitRaw(message)
-                        if (sentences.isNotEmpty()) {
-                            lastRawNmeaAt = SystemClock.elapsedRealtime()
-                            nmea?.publish(sentences)
-                        }
-                    }
-                    @Suppress("DEPRECATION")
-                    lm.addNmeaListener(listener, Handler(Looper.getMainLooper()))
-                    nmeaCallback = listener
-                }
             }
         } catch (e: SecurityException) {
             RelayState.serverError.value = "Location permission not granted"
@@ -238,6 +286,7 @@ class ServerService : Service() {
         NavDispatcher.server = null
         relay?.stop()
         relay = null
+        nmeaJob?.cancel()
         nmea?.stop()
         nmea = null
         scope.cancel()
@@ -250,6 +299,7 @@ class ServerService : Service() {
     companion object {
         private const val ACTION_STOP = "net.internectual.gpsrelay.STOP_SERVER"
         private const val RAW_NMEA_STALE_MS = 3_000L
+        private const val NMEA_SETTLE_MS = 500L
         val PI_FLAGS = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
 
         fun start(context: Context) =
