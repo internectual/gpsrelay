@@ -31,6 +31,8 @@ import net.internectual.gpsrelay.GpsRelayApp
 import net.internectual.gpsrelay.client.ClientService
 import net.internectual.gpsrelay.client.NavLauncher
 import net.internectual.gpsrelay.client.ServerAddress
+import net.internectual.gpsrelay.nmea.DEFAULT_NMEA_PORT
+import net.internectual.gpsrelay.nmea.UdpTarget
 import net.internectual.gpsrelay.protocol.DEFAULT_PORT
 import net.internectual.gpsrelay.settings.Mode
 import net.internectual.gpsrelay.state.RelayState
@@ -45,6 +47,9 @@ fun SettingsScreen() {
     var portText by remember { mutableStateOf(prefs.port.toString()) }
     var overrideText by remember { mutableStateOf(prefs.serverOverride) }
     val overrideValid = overrideText.isBlank() || ServerAddress.parseOverride(overrideText, prefs.port) != null
+    var nmeaPortText by remember { mutableStateOf(prefs.nmeaTcpPort.toString()) }
+    var udpTargetsText by remember { mutableStateOf(prefs.nmeaUdpTargets) }
+    val udpTargetsValid = UdpTarget.parseList(udpTargetsText) != null
 
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -106,6 +111,46 @@ fun SettingsScreen() {
                 ToggleRow("Also open destinations on this device", prefs.alsoOpenLocally) {
                     app.prefs.update { copy(alsoOpenLocally = it) }
                 }
+            }
+
+            InfoCard("NMEA output") {
+                Text(
+                    "Streams standard NMEA 0183 sentences to GPS software on a computer, for example over USB tethering. " +
+                        "There is no PIN: anything that can reach these ports can read this device's location.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                ToggleRow("TCP server", prefs.nmeaTcpEnabled) { app.prefs.update { copy(nmeaTcpEnabled = it) } }
+                if (prefs.nmeaTcpEnabled) {
+                    OutlinedTextField(
+                        value = nmeaPortText,
+                        onValueChange = { t ->
+                            nmeaPortText = t.filter(Char::isDigit).take(5)
+                            nmeaPortText.toIntOrNull()?.takeIf { it in 1024..65535 }
+                                ?.let { p -> app.prefs.update { copy(nmeaTcpPort = p) } }
+                        },
+                        label = { Text("TCP port (default $DEFAULT_NMEA_PORT)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                ToggleRow("UDP datagrams", prefs.nmeaUdpEnabled) { app.prefs.update { copy(nmeaUdpEnabled = it) } }
+                if (prefs.nmeaUdpEnabled) {
+                    OutlinedTextField(
+                        value = udpTargetsText,
+                        onValueChange = { t ->
+                            udpTargetsText = t
+                            if (UdpTarget.parseList(t) != null) app.prefs.update { copy(nmeaUdpTargets = t) }
+                        },
+                        label = { Text("Send to (host[:port], comma-separated)") },
+                        placeholder = { Text("192.168.42.100:$DEFAULT_NMEA_PORT") },
+                        isError = !udpTargetsValid || udpTargetsText.isBlank(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Text("NMEA changes apply the next time the server starts.", style = MaterialTheme.typography.bodySmall)
             }
         }
 

@@ -88,6 +88,43 @@ The client should show **Connected to <gateway>:47474**, and other apps on the c
 
 Port and PIN changes apply the next time the relay starts.
 
+## NMEA output
+
+The server can also stream standard NMEA 0183 sentences, so a computer (or any program that reads NMEA) can use the server as a GPS receiver. It's off by default. Turn it on in **Settings → NMEA output** on the server and restart the server.
+
+| Output | Setting | What you get |
+|---|---|---|
+| TCP | **TCP server**, port (default `10110`) | A plain text stream to every client that connects. No handshake and no PIN. |
+| UDP | **UDP datagrams**, `host[:port]` list | The same text as datagrams, sent to each listed address. The port defaults to `10110`. |
+| pty | `tools/nmea-pty.sh` on the computer | A serial-style device (pseudo-terminal) fed from the TCP or UDP output by `socat`. |
+
+The sentences are the GPS receiver's own on Android 7.0+. On older Android, or if the receiver stops providing them, the server builds `GGA`, `RMC` and `VTG` from each fix instead. Those built sentences estimate HDOP as the reported accuracy ÷ 5 m, give altitude above the WGS84 ellipsoid, and leave the geoid separation empty.
+
+There is no PIN on NMEA output. Anything that can reach the port, including any device on the server's hotspot, can read the server's location, so leave it off when you don't need it.
+
+### Over USB
+
+1. **USB tethering:** turn on USB tethering on the server (Settings → Network → Hotspot & tethering). The computer gets a network link to the phone. The phone's address on that link varies by device, often `192.168.42.129`. Find it with `ip route` or `ipconfig`.
+   - TCP: connect to the phone's address, for example `nc 192.168.42.129 10110`.
+   - UDP: set **Send to** on the server to the computer's address on that link, for example `192.168.42.100:10110`, then listen with `nc -u -l 10110`.
+2. **USB debugging, without tethering (TCP only):** run `adb forward tcp:10110 tcp:10110`, then connect to `localhost:10110`. `adb` can't forward UDP.
+
+### As a pty with socat
+
+Install `socat`, then run the helper on the computer:
+
+```sh
+tools/nmea-pty.sh tcp 192.168.42.129     # read the phone's TCP stream
+tools/nmea-pty.sh tcp localhost          # after `adb forward`
+tools/nmea-pty.sh udp 10110              # receive the phone's UDP datagrams
+```
+
+It creates `/tmp/gpsrelay-nmea` (change it with `-l`), a symlink to a pty that stays in place while the connection drops and comes back. Point GPS software at it, for example `gpsd -N -n /tmp/gpsrelay-nmea` or `cat /tmp/gpsrelay-nmea`. The `socat` equivalent, if you'd rather run it yourself:
+
+```sh
+socat -d PTY,link=/tmp/gpsrelay-nmea,raw,echo=0 TCP:192.168.42.129:10110
+```
+
 ## Troubleshooting
 
 - **The client says "Not connected to a Wi-Fi hotspot".** Make sure the client is on the server's Wi-Fi, or set the server address by hand. The server's IP addresses are listed on its Status tab.
@@ -97,6 +134,7 @@ Port and PIN changes apply the next time the relay starts.
 - **"Select GPS Relay as the mock location app".** Do client setup step 2.
 - **Navigation apps ignore the location.** Some apps check for mock locations. Google Maps and Waze accept them.
 - **Google Maps links skip GPS Relay.** Use Share → GPS Relay, or turn off "Open supported links" for Google Maps (server setup step 3).
+- **No NMEA data.** Check **Settings → NMEA output** and restart the server. Then run `nc <server-ip> 10110` from the computer. It should print sentences starting with `$G`. No output means no fix yet, or the wrong address or port.
 - **Watch the raw data stream.** From any computer on the hotspot, run `nc <server-ip> 47474`, then type `{"t":"hello","version":1,"role":"client"}` and press Enter. Fix messages follow.
 
 ## Protocol
@@ -175,6 +213,8 @@ Signing uses these repository secrets: `KEYSTORE_BASE64` (the keystore file, bas
 ## Privacy
 
 Location and destinations only travel between your own devices over the local network. GPS Relay has no servers and no analytics.
+
+NMEA output is off unless you turn it on, and it only sends to the devices that connect to it or that you list.
 
 The only outside requests are:
 - map tiles from OpenStreetMap;

@@ -15,6 +15,8 @@ object RelayState {
     val serverRunning = MutableStateFlow(false)
     val serverError = MutableStateFlow<String?>(null)
     val clients = MutableStateFlow<List<String>>(emptyList())
+    /** Addresses of TCP clients currently reading the server's NMEA stream. */
+    val nmeaClients = MutableStateFlow<List<String>>(emptyList())
 
     val clientRunning = MutableStateFlow(false)
     val conn = MutableStateFlow(ConnState.STOPPED)
