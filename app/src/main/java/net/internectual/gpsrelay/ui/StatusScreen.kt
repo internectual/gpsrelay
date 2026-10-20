@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -61,7 +62,10 @@ fun StatusScreen(onStart: () -> Unit, onStop: () -> Unit, onRequestPermissions: 
     val prefs by app.prefs.values.collectAsStateWithLifecycle()
     val serverRunning by RelayState.serverRunning.collectAsStateWithLifecycle()
     val clientRunning by RelayState.clientRunning.collectAsStateWithLifecycle()
-    val running = serverRunning || clientRunning
+    // The switch only picks which side to look at; whichever side is running keeps running until Start on the other.
+    val thisRunning = if (prefs.mode == Mode.SERVER) serverRunning else clientRunning
+    val otherRunning = if (prefs.mode == Mode.SERVER) clientRunning else serverRunning
+    var confirmHandover by remember { mutableStateOf(false) }
 
     // Re-check permissions and system settings whenever the user comes back from Settings.
     var resumeTick by remember { mutableLongStateOf(0L) }
@@ -75,26 +79,46 @@ fun StatusScreen(onStart: () -> Unit, onStop: () -> Unit, onRequestPermissions: 
             Mode.entries.forEachIndexed { i, m ->
                 SegmentedButton(
                     selected = prefs.mode == m,
-                    onClick = {
-                        if (prefs.mode != m) {
-                            if (running) onStop()
-                            app.prefs.update { copy(mode = m) }
-                        }
-                    },
+                    onClick = { if (prefs.mode != m) app.prefs.update { copy(mode = m) } },
                     shape = SegmentedButtonDefaults.itemShape(i, Mode.entries.size),
                 ) { Text(if (m == Mode.SERVER) "Server" else "Client") }
             }
         }
 
+        val thisName = if (prefs.mode == Mode.SERVER) "server" else "client"
+        val otherName = if (prefs.mode == Mode.SERVER) "client" else "server"
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (running) {
-                Button(onClick = onStop) { Text("Stop relay") }
+            if (thisRunning) {
+                Button(onClick = onStop) { Text("Stop $thisName") }
             } else {
-                Button(onClick = onStart) { Text(if (prefs.mode == Mode.SERVER) "Start server" else "Start client") }
+                Button(onClick = { if (otherRunning) confirmHandover = true else onStart() }) { Text("Start $thisName") }
             }
+        }
+        if (otherRunning) {
+            Text(
+                "The $otherName is running. Starting the $thisName will stop it.",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
 
         if (prefs.mode == Mode.SERVER) ServerStatus(ctx, prefs, resumeTick) else ClientStatus(ctx, prefs, resumeTick, onRequestPermissions)
+    }
+
+    if (confirmHandover) {
+        val thisName = if (prefs.mode == Mode.SERVER) "server" else "client"
+        val otherName = if (prefs.mode == Mode.SERVER) "client" else "server"
+        AlertDialog(
+            onDismissRequest = { confirmHandover = false },
+            title = { Text("Stop the $otherName?") },
+            text = { Text("This device is running the $otherName. Starting the $thisName will stop it.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmHandover = false
+                    onStart()
+                }) { Text("Start $thisName") }
+            },
+            dismissButton = { TextButton(onClick = { confirmHandover = false }) { Text("Cancel") } },
+        )
     }
 }
 
