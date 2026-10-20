@@ -90,7 +90,7 @@ Port and PIN changes apply the next time the relay starts.
 
 ## NMEA output
 
-The server can also stream standard NMEA 0183 sentences, so a computer (or any program that reads NMEA) can use the server as a GPS receiver. It's off by default. Turn it on in **Settings → NMEA output** on the server and restart the server.
+The server can also stream standard NMEA 0183 sentences, so a computer (or any program that reads NMEA) can use the server as a GPS receiver. It's off by default. Turn it on in **Settings → NMEA output** on the server; changes take effect right away, even while the server is running.
 
 | Output | Setting | What you get |
 |---|---|---|
@@ -125,6 +125,70 @@ It creates `/tmp/gpsrelay-nmea` (change it with `-l`), a symlink to a pty that s
 socat -d PTY,link=/tmp/gpsrelay-nmea,raw,echo=0 TCP:192.168.42.129:10110
 ```
 
+## Automation (Tasker)
+
+Automation apps such as Tasker can start, stop and configure GPS Relay. It's off by default. Turn on **Settings → Automation → Allow automation apps**. That shows a key; every action must include it, so other apps on the device can't start the relay or redirect NMEA output.
+
+In Tasker, use **System → Send Intent** with:
+
+- **Action:** one of the actions below
+- **Extra:** `key:<your key>` (add more extras in the other Extra fields)
+- **Package:** `net.internectual.gpsrelay` (`net.internectual.gpsrelay.debug` for debug builds)
+- **Class:** `net.internectual.gpsrelay.automation.ControlActivity`
+- **Target:** Activity
+
+It has to be an activity, not a broadcast, because Android only lets an app start using location while it has a visible activity. The activity is invisible and closes immediately.
+
+| Action (`net.internectual.gpsrelay.action.…`) | Does |
+|---|---|
+| `START_SERVER` | Start the server (stops the client if it's running) |
+| `START_CLIENT` | Start the client (stops the server if it's running) |
+| `STOP` | Stop whichever is running |
+| `STOP_SERVER` / `STOP_CLIENT` | Stop just that one |
+| `RECONNECT` | Client: drop the connection and reconnect now |
+| `OPEN` | Open the app. Optional extra `tab:status`, `map`, `log` or `settings` |
+| `CLOSE` | Close the app's screen; the relay keeps running |
+| `QUIT` | Stop the relay and close the app's screen |
+| `SET` | Change settings, from the extras below |
+| `REQUEST_STATE` | Send the state broadcast now |
+
+If a start needs the location notice or a permission that hasn't been granted yet, the app opens to ask, then starts.
+
+`SET` extras (any combination; if one is invalid, nothing changes and a toast says which):
+
+| Extra | Value |
+|---|---|
+| `port` | Relay port, 1024–65535 (applies the next time the relay starts) |
+| `pin` | Pairing PIN, up to 16 characters (next start) |
+| `server_address` | Client: `host[:port]`, empty for the Wi-Fi gateway |
+| `nav_app` | Client: navigation app package, e.g. `com.waze`; empty for the system default |
+| `also_open_locally` | `true` / `false` |
+| `start_on_boot` | `true` / `false` |
+| `nmea_tcp` | `true` / `false` (applies immediately) |
+| `nmea_tcp_port` | 1024–65535 |
+| `nmea_udp` | `true` / `false` |
+| `nmea_udp_targets` | `host[:port]`, comma-separated |
+
+For example, to start sending NMEA to a laptop: Action `net.internectual.gpsrelay.action.SET`, extras `key:<key>`, `nmea_udp:true`, `nmea_udp_targets:192.168.1.50:10110`.
+
+### State broadcast
+
+While automation is on, the app broadcasts `net.internectual.gpsrelay.event.STATE` whenever its state changes, and when asked with `REQUEST_STATE`. In Tasker, catch it with an **Event → System → Intent Received** profile; the extras arrive as local variables:
+
+| Extra | Value |
+|---|---|
+| `%mode` | `server` or `client` (the side last selected or started) |
+| `%server_running` / `%client_running` | `true` / `false` |
+| `%client_state` | `stopped`, `searching`, `connecting`, `connected` or `error` |
+| `%clients` | Clients connected to the server |
+| `%nmea_clients` | TCP clients reading NMEA |
+
+It never includes location.
+
+### Sending a destination
+
+Destinations don't need the key: send the same intents a maps app would get, e.g. **Send Intent** with Action `android.intent.action.VIEW`, Data `geo:0,0?q=1600 Amphitheatre Pkwy, Mountain View`, Package `net.internectual.gpsrelay`, Target Activity.
+
 ## Troubleshooting
 
 - **The client says "Not connected to a Wi-Fi hotspot".** Make sure the client is on the server's Wi-Fi, or set the server address by hand. The server's IP addresses are listed on its Status tab.
@@ -134,7 +198,7 @@ socat -d PTY,link=/tmp/gpsrelay-nmea,raw,echo=0 TCP:192.168.42.129:10110
 - **"Select GPS Relay as the mock location app".** Do client setup step 2.
 - **Navigation apps ignore the location.** Some apps check for mock locations. Google Maps and Waze accept them.
 - **Google Maps links skip GPS Relay.** Use Share → GPS Relay, or turn off "Open supported links" for Google Maps (server setup step 3).
-- **No NMEA data.** Check **Settings → NMEA output** and restart the server. Then run `nc <server-ip> 10110` from the computer. It should print sentences starting with `$G`. No output means no fix yet, or the wrong address or port.
+- **No NMEA data.** Check **Settings → NMEA output**. Then run `nc <server-ip> 10110` from the computer. It should print sentences starting with `$G`. No output means no fix yet, or the wrong address or port.
 - **Watch the raw data stream.** From any computer on the hotspot, run `nc <server-ip> 47474`, then type `{"t":"hello","version":1,"role":"client"}` and press Enter. Fix messages follow.
 
 ## Protocol

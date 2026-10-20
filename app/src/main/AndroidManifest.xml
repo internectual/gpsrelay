@@ -121,6 +121,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Automation (Tasker): actions are only honoured when enabled in Settings and sent with its key. -->
+        <activity
+            android:name=".automation.ControlActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.GpsRelay.Translucent" />
+
         <service
             android:name=".server.ServerService"
             android:exported="false"

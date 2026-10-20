@@ -1,5 +1,6 @@
 package net.internectual.gpsrelay.state
 
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -36,6 +37,9 @@ object RelayState {
 
     /** Set by the Log tab to centre the map on an entry. */
     val mapFocus = MutableStateFlow<Destination?>(null)
+
+    /** Asks an open MainActivity to close (automation). Dropped when no UI is open, so it can't close a later one. */
+    val closeUi = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     /** True while MainActivity is resumed; activities may then be started without restriction. */
     @Volatile var uiVisible = false

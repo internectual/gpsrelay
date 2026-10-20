@@ -47,7 +47,7 @@ private val tabs = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppRoot(autostart: MutableState<Boolean>) {
+fun AppRoot(autostart: MutableState<Boolean>, openTab: MutableState<Int?>) {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as GpsRelayApp
     val prefs by app.prefs.values.collectAsStateWithLifecycle()
@@ -82,6 +82,13 @@ fun AppRoot(autostart: MutableState<Boolean>) {
         if (autostart.value) {
             autostart.value = false
             requestStart()
+        }
+    }
+
+    LaunchedEffect(openTab.value) {
+        openTab.value?.let {
+            tab = it
+            openTab.value = null
         }
     }
 

@@ -7,6 +7,7 @@ import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import net.internectual.gpsrelay.automation.Automation
 import net.internectual.gpsrelay.log.NavLogStore
 import net.internectual.gpsrelay.settings.Prefs
 import org.osmdroid.config.Configuration
@@ -27,6 +28,7 @@ class GpsRelayApp : Application() {
         prefs = Prefs(this)
         navLog = NavLogStore(this)
         createChannels()
+        Automation.broadcastStateChanges(this, prefs, appScope)
         Configuration.getInstance().apply {
             userAgentValue = "$packageName/${BuildConfig.VERSION_NAME}"
             osmdroidBasePath = File(cacheDir, "osmdroid")

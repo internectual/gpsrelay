@@ -28,6 +28,9 @@ class Prefs(context: Context) {
         /** Server: send NMEA sentences as UDP datagrams to [nmeaUdpTargets] (`host[:port]`, comma-separated). */
         val nmeaUdpEnabled: Boolean,
         val nmeaUdpTargets: String,
+        /** Let automation apps (Tasker) send actions, if they include [automationKey]. */
+        val automationEnabled: Boolean,
+        val automationKey: String,
     )
 
     private val _values = MutableStateFlow(read())
@@ -47,6 +50,8 @@ class Prefs(context: Context) {
         nmeaTcpPort = sp.getInt("nmeaTcpPort", DEFAULT_NMEA_PORT),
         nmeaUdpEnabled = sp.getBoolean("nmeaUdpEnabled", false),
         nmeaUdpTargets = sp.getString("nmeaUdpTargets", "") ?: "",
+        automationEnabled = sp.getBoolean("automationEnabled", false),
+        automationKey = sp.getString("automationKey", "") ?: "",
     )
 
     fun update(block: Values.() -> Values) {
@@ -64,6 +69,8 @@ class Prefs(context: Context) {
             .putInt("nmeaTcpPort", v.nmeaTcpPort)
             .putBoolean("nmeaUdpEnabled", v.nmeaUdpEnabled)
             .putString("nmeaUdpTargets", v.nmeaUdpTargets.trim())
+            .putBoolean("automationEnabled", v.automationEnabled)
+            .putString("automationKey", v.automationKey)
             .apply()
         _values.value = v
     }

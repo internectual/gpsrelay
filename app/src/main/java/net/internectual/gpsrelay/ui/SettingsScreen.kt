@@ -9,25 +9,34 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import net.internectual.gpsrelay.BuildConfig
 import net.internectual.gpsrelay.GpsRelayApp
+import net.internectual.gpsrelay.automation.Automation
+import net.internectual.gpsrelay.automation.ControlActivity
 import net.internectual.gpsrelay.client.ClientService
 import net.internectual.gpsrelay.client.NavLauncher
 import net.internectual.gpsrelay.client.ServerAddress
@@ -37,12 +46,14 @@ import net.internectual.gpsrelay.protocol.DEFAULT_PORT
 import net.internectual.gpsrelay.settings.Mode
 import net.internectual.gpsrelay.state.RelayState
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen() {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as GpsRelayApp
     val prefs by app.prefs.values.collectAsStateWithLifecycle()
     val navApps = remember { NavLauncher.installedNavApps(ctx) }
+    val clipboard = LocalClipboardManager.current
 
     var portText by remember { mutableStateOf(prefs.port.toString()) }
     var overrideText by remember { mutableStateOf(prefs.serverOverride) }
@@ -50,6 +61,8 @@ fun SettingsScreen() {
     var nmeaPortText by remember { mutableStateOf(prefs.nmeaTcpPort.toString()) }
     var udpTargetsText by remember { mutableStateOf(prefs.nmeaUdpTargets) }
     val udpTargetsValid = UdpTarget.parseList(udpTargetsText) != null
+    // Which side's settings are shown; starts on the side Status is showing but doesn't change it.
+    var section by rememberSaveable { mutableStateOf(prefs.mode) }
 
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -74,7 +87,46 @@ fun SettingsScreen() {
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (prefs.mode == Mode.CLIENT) {
+            Text("Port and PIN changes apply the next time the relay starts.", style = MaterialTheme.typography.bodySmall)
+        }
+
+        InfoCard("General") {
+            ToggleRow("Start when the device boots", prefs.startOnBoot) {
+                app.prefs.update { copy(startOnBoot = it) }
+            }
+            OutlinedButton(onClick = { RelayState.clearTrail() }) { Text("Clear map trail") }
+        }
+
+        InfoCard("Automation") {
+            ToggleRow("Allow automation apps (e.g. Tasker)", prefs.automationEnabled) { on ->
+                app.prefs.update { copy(automationEnabled = on, automationKey = automationKey.ifBlank { Automation.newKey() }) }
+            }
+            if (prefs.automationEnabled) {
+                Text(
+                    "Send intents to activity ${ControlActivity::class.java.name} in package ${ctx.packageName}, " +
+                        "with extra key:${prefs.automationKey}. Any app with this key can start the relay and change " +
+                        "where NMEA output goes, so keep it private. Actions are listed in the README.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { clipboard.setText(AnnotatedString(prefs.automationKey)) }) { Text("Copy key") }
+                    OutlinedButton(onClick = { app.prefs.update { copy(automationKey = Automation.newKey()) } }) { Text("New key") }
+                }
+            }
+        }
+
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            Mode.entries.forEachIndexed { i, m ->
+                SegmentedButton(
+                    selected = section == m,
+                    onClick = { section = m },
+                    shape = SegmentedButtonDefaults.itemShape(i, Mode.entries.size),
+                ) { Text(if (m == Mode.SERVER) "Server" else "Client") }
+            }
+        }
+
+        if (section == Mode.CLIENT) {
+            InfoCard("Server address") {
                 OutlinedTextField(
                     value = overrideText,
                     onValueChange = { t ->
@@ -92,10 +144,7 @@ fun SettingsScreen() {
                 )
                 OutlinedButton(onClick = { ClientService.reconnect() }) { Text("Reconnect now") }
             }
-            Text("Port and PIN changes apply the next time the relay starts.", style = MaterialTheme.typography.bodySmall)
-        }
 
-        if (prefs.mode == Mode.CLIENT) {
             InfoCard("Navigation app") {
                 NavAppRow("System default (ask)", prefs.navAppPackage.isEmpty()) {
                     app.prefs.update { copy(navAppPackage = "") }
@@ -150,15 +199,7 @@ fun SettingsScreen() {
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                Text("NMEA changes apply the next time the server starts.", style = MaterialTheme.typography.bodySmall)
             }
-        }
-
-        InfoCard("General") {
-            ToggleRow("Start when the device boots", prefs.startOnBoot) {
-                app.prefs.update { copy(startOnBoot = it) }
-            }
-            OutlinedButton(onClick = { RelayState.clearTrail() }) { Text("Clear map trail") }
         }
 
         InfoCard("About") {
