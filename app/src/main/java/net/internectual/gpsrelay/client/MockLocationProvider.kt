@@ -15,13 +15,20 @@ import net.internectual.gpsrelay.protocol.Fix
  */
 class MockLocationProvider(context: Context) {
     private val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    // Touched from the client's IO thread (start/push) and the main thread (stop), hence @Synchronized below.
     private val active = mutableListOf<String>()
+    /** Set by [stop]; a fix that arrives afterwards must not register the providers again. */
+    private var stopped = false
+    /** False while [pause]d: the providers stay registered but report "disabled", so apps don't see a frozen fix. */
+    private var enabled = true
 
-    val isActive: Boolean get() = active.isNotEmpty()
+    val isActive: Boolean
+        @Synchronized get() = active.isNotEmpty()
 
     /** Registers the test providers. Returns null on success or an error message. */
+    @Synchronized
     fun start(): String? {
-        if (isActive) return null
+        if (stopped || isActive) return null
         val wanted = buildList {
             add(LocationManager.GPS_PROVIDER)
             add(LocationManager.NETWORK_PROVIDER)
@@ -34,6 +41,7 @@ class MockLocationProvider(context: Context) {
                 addProvider(p)
                 lm.setTestProviderEnabled(p, true)
                 active += p
+                enabled = true
             } catch (e: SecurityException) {
                 error = "Select GPS Relay as the mock location app in Developer options"
                 break
@@ -69,7 +77,20 @@ class MockLocationProvider(context: Context) {
         }
     }
 
+    /** Marks the providers disabled until the next [push], for when fixes stop arriving. */
+    @Synchronized
+    fun pause() {
+        if (!enabled) return
+        enabled = false
+        for (p in active) runCatching { lm.setTestProviderEnabled(p, false) }
+    }
+
+    @Synchronized
     fun push(fix: Fix) {
+        if (!enabled) {
+            enabled = true
+            for (p in active) runCatching { lm.setTestProviderEnabled(p, true) }
+        }
         val now = System.currentTimeMillis()
         val elapsed = SystemClock.elapsedRealtimeNanos()
         val failed = mutableListOf<String>()
@@ -101,7 +122,9 @@ class MockLocationProvider(context: Context) {
         active.removeAll(failed)
     }
 
+    @Synchronized
     fun stop() {
+        stopped = true
         for (p in active) {
             runCatching { lm.setTestProviderEnabled(p, false) }
             runCatching { lm.removeTestProvider(p) }

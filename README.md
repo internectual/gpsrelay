@@ -26,6 +26,7 @@ The same app does both jobs. You pick the mode on each device.
 - **Client mode**
   - Connects to the hotspot gateway by default, which is the server. You can also set a manual `IP:port`.
   - Provides the relayed location to every app as the system's mock location.
+  - If no location arrives for 10 seconds, for example because the server is out of range, other apps see GPS as off rather than a frozen position. It comes back with the next location.
   - Opens each received destination in the navigation app you chose.
 - **Both modes**
   - A live map shows the current position, accuracy, heading, a trail of recent positions and the latest destination. It uses OpenStreetMap, so it needs no Google services.
@@ -279,6 +280,10 @@ Signing uses these repository secrets: `KEYSTORE_BASE64` (the keystore file, bas
 Location and destinations only travel between your own devices over the local network. GPS Relay has no servers and no analytics.
 
 NMEA output is off unless you turn it on, and it only sends to the devices that connect to it or that you list.
+
+The server only accepts relay and NMEA connections from local addresses: the hotspot and other private networks (10.x, 172.16–31.x, 192.168.x, 100.64.x, link-local, IPv6 `fd…`/`fe80…`) and the device itself. If the device has a public IPv6 address on mobile data, the internet can't connect to it.
+
+Android backups include the settings but not the pairing PIN, the automation key or the log of destinations. After restoring to a new device, set the PIN again and turn automation back on, which creates a new key.
 
 The only outside requests are:
 - map tiles from OpenStreetMap;

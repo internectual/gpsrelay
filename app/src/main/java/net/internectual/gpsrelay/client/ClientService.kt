@@ -13,6 +13,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
@@ -50,9 +51,11 @@ class ClientService : Service() {
     @Volatile private var conn: LineConnection? = null
     private val handledNavIds = ArrayDeque<String>()
     private var lastMockAttempt = 0L
+    /** When the last fix arrived (elapsed realtime), to stop reporting a stale position. */
+    @Volatile private var lastFixAt = 0L
     private var lastNotifUpdate = 0L
     /** Set once onDestroy starts, so callbacks fired while tearing down can't re-post the notification. */
-    private var destroyed = false
+    @Volatile private var destroyed = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     private val app get() = application as GpsRelayApp
@@ -82,6 +85,7 @@ class ClientService : Service() {
         }
         if (loopJob == null) {
             loopJob = scope.launch { runLoop() }
+            scope.launch { pauseWhenStale() }
             watchWifi()
         }
         RelayState.clientRunning.value = true
@@ -145,7 +149,21 @@ class ClientService : Service() {
         }
     }
 
+    /**
+     * Without fixes (server gone, out of Wi-Fi range) the mock location would stay at the last fix and navigation
+     * apps would show this device standing still. Report "GPS off" instead until fixes resume.
+     */
+    private suspend fun pauseWhenStale() {
+        while (scope.isActive) {
+            delay(2000)
+            if (mock.isActive && SystemClock.elapsedRealtime() - lastFixAt > STALE_FIX_MS) mock.pause()
+        }
+    }
+
     private fun onFix(fix: Fix) {
+        // A fix read just before onDestroy must not re-register the test providers it removed.
+        if (destroyed) return
+        lastFixAt = SystemClock.elapsedRealtime()
         RelayState.onFix(fix)
         if (!mock.isActive) {
             val now = System.currentTimeMillis()
@@ -243,6 +261,7 @@ class ClientService : Service() {
             runCatching { (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it) }
         }
         scope.cancel()
+        // Cancelling doesn't interrupt a blocking read; closing the socket does.
         conn?.close()
         mock.stop()
         RelayState.clientRunning.value = false
@@ -256,6 +275,7 @@ class ClientService : Service() {
 
     companion object {
         private const val ACTION_STOP = "net.internectual.gpsrelay.STOP_CLIENT"
+        private const val STALE_FIX_MS = 10_000L
         private val PI_FLAGS = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
 
         fun start(context: Context) =

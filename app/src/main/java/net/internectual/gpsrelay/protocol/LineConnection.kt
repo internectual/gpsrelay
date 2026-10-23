@@ -6,6 +6,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import java.io.IOException
+import java.io.Reader
 import java.net.Socket
 
 /**
@@ -37,11 +38,13 @@ class LineConnection(private val socket: Socket, scope: CoroutineScope) {
         out.trySend(Codec.encode(m))
     }
 
-    /** Blocks until the next decodable message; null on EOF. Throws IOException on socket errors/timeouts. */
+    /**
+     * Blocks until the next decodable message; null on EOF. Throws IOException on socket errors/timeouts, and on a
+     * line longer than [MAX_LINE] so a peer can't make us buffer without limit.
+     */
     fun read(): Msg? {
         while (true) {
-            val line = reader.readLine() ?: return null
-            if (line.length > MAX_LINE) continue
+            val line = readLine(reader, MAX_LINE) ?: return null
             Codec.decode(line)?.let { return it }
         }
     }
@@ -51,7 +54,19 @@ class LineConnection(private val socket: Socket, scope: CoroutineScope) {
         runCatching { socket.close() }
     }
 
-    private companion object {
+    internal companion object {
         const val MAX_LINE = 64 * 1024
+
+        /** Like [java.io.BufferedReader.readLine] for `\n` or `\r\n` endings, but gives up past [max] characters. */
+        fun readLine(r: Reader, max: Int): String? {
+            val sb = StringBuilder()
+            while (true) {
+                val c = r.read()
+                if (c < 0) return if (sb.isEmpty()) null else sb.toString()
+                if (c == '\n'.code) return sb.removeSuffix("\r").toString()
+                if (sb.length >= max) throw IOException("Line longer than $max characters")
+                sb.append(c.toChar())
+            }
+        }
     }
 }

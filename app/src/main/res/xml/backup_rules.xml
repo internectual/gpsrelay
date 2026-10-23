@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 6–11 backups. Settings are backed up; the PIN, automation key and destination log are not. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="secrets.xml" />
+    <exclude domain="database" path="navlog.db" />
+</full-backup-content>

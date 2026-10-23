@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ backups and device transfer. Settings are kept; the PIN, automation key and destination log are not. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="secrets.xml" />
+        <exclude domain="database" path="navlog.db" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="secrets.xml" />
+        <exclude domain="database" path="navlog.db" />
+    </device-transfer>
+</data-extraction-rules>

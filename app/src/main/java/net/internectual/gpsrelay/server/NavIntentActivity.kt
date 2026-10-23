@@ -11,7 +11,9 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import net.internectual.gpsrelay.GpsRelayApp
+import net.internectual.gpsrelay.settings.Mode
 import net.internectual.gpsrelay.state.RelayState
+import net.internectual.gpsrelay.ui.Setup
 
 /**
  * Invisible activity registered for geo:, google.navigation:, waze:, Maps/Waze web links and shared text.
@@ -35,11 +37,15 @@ class NavIntentActivity : Activity() {
         val app = application as GpsRelayApp
         val source = sourcePackage()
 
-        // While this activity is in the foreground we may start the location service.
-        if (!RelayState.serverRunning.value && hasLocationPermission()) {
-            ServerService.start(this)
-        } else if (!RelayState.serverRunning.value) {
-            Toast.makeText(this, "Open GPS Relay and start the server", Toast.LENGTH_LONG).show()
+        // While this activity is in the foreground we may start the location service, but only once the user has
+        // read the location notice, and not over a running client: the server would relay the client's mock GPS.
+        if (!RelayState.serverRunning.value) {
+            val p = app.prefs.current
+            if (p.disclosureAccepted && p.mode == Mode.SERVER && !RelayState.clientRunning.value && hasLocationPermission()) {
+                Setup.startRelay(this, Mode.SERVER)
+            } else {
+                Toast.makeText(this, "Open GPS Relay and start the server", Toast.LENGTH_LONG).show()
+            }
         }
         NavDispatcher.submit(this, raw, source)
 

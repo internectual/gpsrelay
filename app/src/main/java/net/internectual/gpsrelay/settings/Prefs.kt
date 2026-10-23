@@ -12,6 +12,19 @@ enum class Mode { SERVER, CLIENT }
 /** App settings, mirrored into a StateFlow so Compose recomposes on change. */
 class Prefs(context: Context) {
     private val sp: SharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    /** The PIN and automation key, kept apart so backups can leave them out (res/xml/backup_rules.xml, data_extraction_rules.xml). */
+    private val secrets: SharedPreferences = context.getSharedPreferences("secrets", Context.MODE_PRIVATE)
+
+    init {
+        // Earlier builds kept the secrets in "settings".
+        if (sp.contains("pin") || sp.contains("automationKey")) {
+            secrets.edit()
+                .putString("pin", sp.getString("pin", "") ?: "")
+                .putString("automationKey", sp.getString("automationKey", "") ?: "")
+                .commit()
+            sp.edit().remove("pin").remove("automationKey").commit()
+        }
+    }
 
     data class Values(
         val mode: Mode,
@@ -41,7 +54,7 @@ class Prefs(context: Context) {
         mode = runCatching { Mode.valueOf(sp.getString("mode", null) ?: "") }.getOrDefault(Mode.CLIENT),
         port = sp.getInt("port", DEFAULT_PORT),
         serverOverride = sp.getString("serverOverride", "") ?: "",
-        pin = sp.getString("pin", "") ?: "",
+        pin = secrets.getString("pin", "") ?: "",
         navAppPackage = sp.getString("navApp", "") ?: "",
         alsoOpenLocally = sp.getBoolean("alsoOpenLocally", false),
         startOnBoot = sp.getBoolean("startOnBoot", false),
@@ -50,8 +63,9 @@ class Prefs(context: Context) {
         nmeaTcpPort = sp.getInt("nmeaTcpPort", DEFAULT_NMEA_PORT),
         nmeaUdpEnabled = sp.getBoolean("nmeaUdpEnabled", false),
         nmeaUdpTargets = sp.getString("nmeaUdpTargets", "") ?: "",
-        automationEnabled = sp.getBoolean("automationEnabled", false),
-        automationKey = sp.getString("automationKey", "") ?: "",
+        // The key isn't backed up, so after a restore automation stays off until it's turned on (with a new key).
+        automationEnabled = sp.getBoolean("automationEnabled", false) && !secrets.getString("automationKey", null).isNullOrEmpty(),
+        automationKey = secrets.getString("automationKey", "") ?: "",
     )
 
     fun update(block: Values.() -> Values) {
@@ -60,7 +74,6 @@ class Prefs(context: Context) {
             .putString("mode", v.mode.name)
             .putInt("port", v.port)
             .putString("serverOverride", v.serverOverride.trim())
-            .putString("pin", v.pin)
             .putString("navApp", v.navAppPackage)
             .putBoolean("alsoOpenLocally", v.alsoOpenLocally)
             .putBoolean("startOnBoot", v.startOnBoot)
@@ -70,6 +83,9 @@ class Prefs(context: Context) {
             .putBoolean("nmeaUdpEnabled", v.nmeaUdpEnabled)
             .putString("nmeaUdpTargets", v.nmeaUdpTargets.trim())
             .putBoolean("automationEnabled", v.automationEnabled)
+            .apply()
+        secrets.edit()
+            .putString("pin", v.pin)
             .putString("automationKey", v.automationKey)
             .apply()
         _values.value = v

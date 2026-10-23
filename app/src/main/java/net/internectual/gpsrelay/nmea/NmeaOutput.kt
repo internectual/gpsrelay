@@ -7,6 +7,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import net.internectual.gpsrelay.protocol.LocalPeers
 import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -108,6 +109,8 @@ class NmeaOutput(
     private var acceptJob: Job? = null
     private var udpJob: Job? = null
     private val clients = CopyOnWriteArrayList<Client>()
+    /** Set by [stop], so a client accepted while stopping is closed instead of kept open with nothing to read. */
+    @Volatile private var stopped = false
     private val udpQueue = Channel<String>(capacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     fun start() {
@@ -130,6 +133,10 @@ class NmeaOutput(
                         } catch (e: IOException) {
                             break
                         }
+                        if (!LocalPeers.isLocal(s.inetAddress)) {
+                            runCatching { s.close() }
+                            continue
+                        }
                         launch(Dispatchers.IO) { handle(s) }
                     }
                 } finally {
@@ -144,6 +151,7 @@ class NmeaOutput(
     }
 
     fun stop() {
+        stopped = true
         runCatching { serverSocket?.close() }
         acceptJob?.cancel()
         udpJob?.cancel()
@@ -165,6 +173,12 @@ class NmeaOutput(
         socket.tcpNoDelay = true
         val client = Client(socket)
         clients += client
+        // Checked after adding: either stop() sees this client in the list, or we see the flag.
+        if (stopped) {
+            client.close()
+            clients.remove(client)
+            return
+        }
         notifyClients()
         try {
             client.awaitClose()

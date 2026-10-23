@@ -6,6 +6,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import net.internectual.gpsrelay.protocol.LineConnection
+import net.internectual.gpsrelay.protocol.LocalPeers
 import net.internectual.gpsrelay.protocol.Msg
 import net.internectual.gpsrelay.protocol.PROTOCOL_VERSION
 import java.io.IOException
@@ -49,13 +50,22 @@ class RelayServer(
                 return@launch
             }
             serverSocket = ss
-            while (isActive) {
-                val s = try {
-                    ss.accept()
-                } catch (e: IOException) {
-                    break
+            try {
+                while (isActive) {
+                    val s = try {
+                        ss.accept()
+                    } catch (e: IOException) {
+                        break
+                    }
+                    if (!LocalPeers.isLocal(s.inetAddress)) {
+                        runCatching { s.close() }
+                        continue
+                    }
+                    launch { handle(s) }
                 }
-                launch { handle(s) }
+            } finally {
+                // stop() may have run before the bind finished, so it couldn't close the socket itself.
+                runCatching { ss.close() }
             }
         }
     }
