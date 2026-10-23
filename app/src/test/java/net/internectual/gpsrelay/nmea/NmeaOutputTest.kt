@@ -66,7 +66,8 @@ class NmeaOutputTest {
         }
 
         a.close()
-        assertEquals(1, clientCounts.poll(2, TimeUnit.SECONDS))
+        // Both connects may have reported 2, leaving a stale 2 queued; skip to the 1.
+        awaitClientCount(1)
         // The remaining client keeps receiving.
         output!!.publish(listOf(gga))
         assertEquals(gga, b.getInputStream().bufferedReader(Charsets.US_ASCII).readLine())
